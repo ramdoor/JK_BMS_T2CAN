@@ -1,0 +1,63 @@
+# PlatformIO
+.pio/
+.vscode/
+.clang_complete
+.gcc-flags.json
+
+# Build artifacts
+*.bin
+*.hex
+*.elf
+*.map
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+
+# Version control
+.git/
+*.orig
+
+# Logs
+*.log
+logs/
+
+# Secrets (DO NOT COMMIT)
+secrets.h
+credentials.h
+wifi_config.h
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+
+# Testing
+test_results/
+coverage/
+
+# OS
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Project specific
+release/
+firmware_backup/
+*.csv
+*.db
