@@ -605,12 +605,12 @@ static void applyPreset(Chemistry c) {
     limits.tempMin = 0.0f;
     limits.tempMax = 55.0f;
 
-    limits.taperChgStartV = 3.45f;
+    limits.taperChgStartV = 3.40f;
     limits.taperChgEndV   = 3.55f;
     limits.taperDisStartV = 3.10f;
     limits.taperDisEndV   = 2.90f;
-    limits.taperRecoveryPctS = 2.0f;  // 2%/s = 50s to recover from 0 to 100%
-    limits.taperHoldMs = 15000;       // 15s hold at 0% before recovery
+    limits.taperRecoveryPctS = 0.5f;  // 0.5%/s = 200s to recover from 0 to 100%
+    limits.taperHoldMs = 30000;       // 30s hold at 0% before recovery
     limits.dynCvlOffsetV = 0.8f;
 
     ecfg.fullCellV = 3.55f;
@@ -627,12 +627,12 @@ static void applyPreset(Chemistry c) {
     limits.tempMin = 0.0f;
     limits.tempMax = 60.0f;
 
-    limits.taperChgStartV = 4.10f;
+    limits.taperChgStartV = 4.05f;
     limits.taperChgEndV   = 4.18f;
     limits.taperDisStartV = 3.20f;
     limits.taperDisEndV   = 3.05f;
-    limits.taperRecoveryPctS = 2.0f;  // 2%/s = 50s to recover from 0 to 100%
-    limits.taperHoldMs = 15000;       // 15s hold at 0% before recovery
+    limits.taperRecoveryPctS = 0.5f;  // 0.5%/s = 200s to recover from 0 to 100%
+    limits.taperHoldMs = 30000;       // 30s hold at 0% before recovery
     limits.dynCvlOffsetV = 0.5f;
 
     ecfg.fullCellV = 4.12f;
@@ -649,12 +649,12 @@ static void applyPreset(Chemistry c) {
     limits.tempMin = -20.0f;   // LTO works well at low temps
     limits.tempMax = 55.0f;
 
-    limits.taperChgStartV = 2.70f;
+    limits.taperChgStartV = 2.65f;
     limits.taperChgEndV   = 2.78f;
     limits.taperDisStartV = 2.00f;
     limits.taperDisEndV   = 1.85f;
-    limits.taperRecoveryPctS = 2.0f;
-    limits.taperHoldMs = 15000;
+    limits.taperRecoveryPctS = 0.5f;  // 0.5%/s = 200s to recover from 0 to 100%
+    limits.taperHoldMs = 30000;       // 30s hold at 0% before recovery
     limits.dynCvlOffsetV = 0.4f;
 
     ecfg.fullCellV = 2.75f;
@@ -1610,9 +1610,9 @@ static void handleRoot() {
   html += "<div class='card'>";
   html += "<div class='card-title'><span>🔌</span> " + String(T(S_CONTACTORS)) + "</div>";
   html += "<div class='kpi'>";
-  html += "<div class='kpi-row'><span class='kpi-label'><span id='dotPre' class='dot " + String(cPre?"dot-on":"dot-off") + "'></span>" + String(T(S_PRECHARGE)) + "</span><span class='kpi-value' id='lblPre'>" + String(cPre?"Closed":"Open") + "</span></div>";
-  html += "<div class='kpi-row'><span class='kpi-label'><span id='dotChg' class='dot " + String(cChg?"dot-on":"dot-off") + "'></span>" + String(T(S_CHARGE)) + "</span><span class='kpi-value' id='lblChg'>" + String(cChg?"Closed":"Open") + "</span></div>";
-  html += "<div class='kpi-row'><span class='kpi-label'><span id='dotDsg' class='dot " + String(cDsg?"dot-on":"dot-off") + "'></span>" + String(T(S_DISCHARGE)) + "</span><span class='kpi-value' id='lblDsg'>" + String(cDsg?"Closed":"Open") + "</span></div>";
+  html += "<div class='kpi-row'><span class='kpi-label'><span id='dotPre' class='dot " + String(cPre?"dot-on":"dot-off") + "'></span>" + String(T(S_PRECHARGE)) + " <small style='opacity:.5'>GPIO " + String(GPIO_PRECHARGE_CONTACTOR) + "</small></span><span class='kpi-value' id='lblPre'>" + String(cPre?"Closed":"Open") + "</span></div>";
+  html += "<div class='kpi-row'><span class='kpi-label'><span id='dotChg' class='dot " + String(cChg?"dot-on":"dot-off") + "'></span>" + String(T(S_CHARGE)) + " <small style='opacity:.5'>GPIO " + String(GPIO_CHG_CONTACTOR) + "</small></span><span class='kpi-value' id='lblChg'>" + String(cChg?"Closed":"Open") + "</span></div>";
+  html += "<div class='kpi-row'><span class='kpi-label'><span id='dotDsg' class='dot " + String(cDsg?"dot-on":"dot-off") + "'></span>" + String(T(S_DISCHARGE)) + " <small style='opacity:.5'>GPIO " + String(GPIO_DSG_CONTACTOR) + "</small></span><span class='kpi-value' id='lblDsg'>" + String(cDsg?"Closed":"Open") + "</span></div>";
   html += "</div></div>";
 
   // Pack summary card
