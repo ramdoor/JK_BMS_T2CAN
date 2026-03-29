@@ -280,6 +280,14 @@ static uint16_t historyHead = 0;
 static uint16_t historyCount = 0;
 static uint32_t lastHistorySample = 0;
 
+// Long-term history buffer (2-minute samples, ~24 hours of data)
+#define HISTORY24_SIZE 720
+#define HISTORY24_INTERVAL_MS 120000   // 2 minutes
+static HistoryPoint history24[HISTORY24_SIZE];
+static uint16_t history24Head = 0;
+static uint16_t history24Count = 0;
+static uint32_t lastHistory24Sample = 0;
+
 static void recordHistory() {
   history[historyHead].ts = millis() / 1000;
   history[historyHead].packV = packTotalV;
@@ -290,6 +298,18 @@ static void recordHistory() {
   history[historyHead].tempC = packAvgTempC;
   historyHead = (historyHead + 1) % HISTORY_SIZE;
   if (historyCount < HISTORY_SIZE) historyCount++;
+}
+
+static void recordHistory24() {
+  history24[history24Head].ts = millis() / 1000;
+  history24[history24Head].packV = packTotalV;
+  history24[history24Head].currentA = currentValid ? ((float)current_mA / 1000.0f) : 0.0f;
+  history24[history24Head].soc = socPct;
+  history24[history24Head].minCell = packMinCellV < 900.0f ? packMinCellV : 0.0f;
+  history24[history24Head].maxCell = packMaxCellV;
+  history24[history24Head].tempC = packAvgTempC;
+  history24Head = (history24Head + 1) % HISTORY24_SIZE;
+  if (history24Count < HISTORY24_SIZE) history24Count++;
 }
 
 // ===================== Event Log (Persistent) =====================
@@ -1557,6 +1577,7 @@ button[type=submit]:hover{filter:brightness(1.1);}
   h += "<a class='btn btn-danger' href=\"/actions?arm=0\">" + String(T(S_DISARM)) + "</a>";
   h += "<a class='btn btn-ghost' href=\"/actions?reset=1\">" + String(T(S_RESET_TRIP)) + "</a>";
   h += "<a class='btn btn-ghost' href=\"/actions?resetUserCounters=1\">" + String(T(S_RESET_COUNTERS)) + "</a>";
+  h += "<a class='btn btn-danger' href=\"/actions?reboot=1\" onclick=\"return confirm('Reboot ESP32?');\">Reboot</a>";
   h += "</div></div>";
   return h;
 }
@@ -1599,6 +1620,8 @@ static void handleRoot() {
   {char hb[12]; snprintf(hb,sizeof(hb),"0x%08lX",(unsigned long)mcp2515_lastRxId);
   html += "<div class='kpi-row'><span class='kpi-label'>CAN2 Last RX</span><span class='kpi-value'><span id='mcpLastId'>" + String(hb) + "</span> [<span id='mcpLastData'>--</span>]</span></div>";
   html += "<div class='kpi-row'><span class='kpi-label'>CAN2 All IDs</span><span class='kpi-value' id='mcpAllIds' style='font-size:11px;'>--</span></div>";}
+  html += "<div class='kpi-row'><span class='kpi-label'>Device ID</span><span class='kpi-value' style='font-family:monospace;font-size:12px;letter-spacing:1px;color:var(--accent);user-select:all;'>" + String(mqttDeviceId) + "</span></div>";
+  html += "<div class='kpi-row'><span class='kpi-label'>FW</span><span class='kpi-value' style='font-size:12px;color:var(--text-muted);'>" + String(FW_VERSION_STRING) + "</span></div>";
   if(invProto==INV_PYLON_HV){
     char pbuf[80]; snprintf(pbuf,sizeof(pbuf),"CVL=%u DVL=%u CCL=%u DCL=%u T=%d",pylonDbg_CVL,pylonDbg_DVL,pylonDbg_CCL,pylonDbg_DCL,pylonDbg_temp);
     html += "<div class='kpi-row'><span class='kpi-label'>Pylon TX</span><span class='kpi-value' id='pylonTx' style='font-size:11px;'>" + String(pbuf) + "</span></div>";
@@ -1670,7 +1693,7 @@ static void handleRoot() {
   // Real-time charts section with range selector
   html += "<div class='section-title'><span>📈</span> Real-Time Charts";
   html += "<select id='selRange' style='margin-left:auto;font-size:12px;padding:4px 8px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:4px;'>";
-  html += "<option value='300'>5 min</option><option value='900'>15 min</option><option value='1800' selected>30 min</option><option value='3600'>1 hour</option></select>";
+  html += "<option value='300'>5 min</option><option value='900'>15 min</option><option value='1800' selected>30 min</option><option value='3600'>1h</option><option value='21600'>6h</option><option value='43200'>12h</option><option value='86400'>24h</option></select>";
   html += "<button id='btnHistory' class='btn btn-ghost' style='margin-left:8px;font-size:12px;padding:6px 12px;'>Load</button></div>";
   html += "<div class='chart-grid'>";
   html += "<div class='chart-container'><canvas id='chartVoltage'></canvas></div>";
@@ -1843,8 +1866,9 @@ async function loadHistory(){
       setChartData(chartV, h.points.map(p => p.v));
       setChartData(chartA, h.points.map(p => p.a));
       setChartData(chartS, h.points.map(p => p.soc));
-      const mins = Math.round(parseInt(range) / 60);
-      if(btn) btn.textContent = h.points.length + ' pts (' + mins + 'm)';
+      const secs = parseInt(range);
+      const label = secs >= 3600 ? (secs/3600)+'h' : Math.round(secs/60)+'m';
+      if(btn) btn.textContent = h.points.length + ' pts (' + label + ')';
     } else {
       if(btn) btn.textContent = 'No data';
     }
@@ -2420,6 +2444,13 @@ static void handleActions() {
     if (!isAdmin()) { requireAdmin(); return; }
     clearEventLog();
   }
+  if (server.hasArg("reboot")) {
+    if (!isAdmin()) { requireAdmin(); return; }
+    logEvent(EVT_RESET, "Reboot requested via web");
+    server.send(200, "text/html", "<html><body><p>Rebooting...</p></body></html>");
+    delay(500);
+    ESP.restart();
+  }
 
   server.sendHeader("Location", "/");
   server.send(302, "text/plain", "OK");
@@ -2521,10 +2552,15 @@ static void canTask(void*) {
       saveEnergyState();
     }
 
-    // Record history every 5 seconds
+    // Record history every 5 seconds (1h buffer)
     if (now - lastHistorySample >= 5000) {
       lastHistorySample = now;
       recordHistory();
+    }
+    // Record 24h history every 2 minutes
+    if (now - lastHistory24Sample >= HISTORY24_INTERVAL_MS) {
+      lastHistory24Sample = now;
+      recordHistory24();
     }
 
     // serial status every 2s
@@ -2917,6 +2953,7 @@ static void handleApiStatus() {
 
   String j = "{";
   j += "\"rev\":" + String(ui_rev) + ",";
+  j += "\"deviceId\":\"" + String(mqttDeviceId) + "\",";
   j += "\"armed\":" + String(armed ? 1 : 0) + ",";
   j += "\"state\":\"" + String(state==ST_OPEN?"OPEN":state==ST_PRECHARGING?"PRECHARGING":state==ST_CLOSED?"CLOSED":"TRIPPED") + "\",";
   j += "\"ids\":\"" + activeIdsCsv + "\",";
@@ -3018,43 +3055,51 @@ static void handleApiHistory() {
   if (!isUserOrAdmin()) return;
 
   // Get optional range parameter (seconds to show, default=all)
-  uint16_t rangeSeconds = 0;  // 0 = all data
+  uint32_t rangeSeconds = 0;  // 0 = all data
   if (server.hasArg("range")) {
-    rangeSeconds = (uint16_t)server.arg("range").toInt();
+    rangeSeconds = (uint32_t)server.arg("range").toInt();
   }
 
-  // Calculate how many points to include based on range (5s per sample)
-  uint16_t maxPoints = historyCount;
+  // Select buffer: use 24h buffer for ranges > 1 hour, 5s buffer otherwise
+  bool use24h = (rangeSeconds > 3600);
+  HistoryPoint* buf    = use24h ? history24    : history;
+  uint16_t bufSize     = use24h ? HISTORY24_SIZE : HISTORY_SIZE;
+  uint16_t bufHead     = use24h ? history24Head  : historyHead;
+  uint16_t bufCount    = use24h ? history24Count : historyCount;
+  uint16_t sampleSec   = use24h ? (HISTORY24_INTERVAL_MS / 1000) : 5;
+
+  // Calculate how many points to include based on range
+  uint16_t maxPoints = bufCount;
   if (rangeSeconds > 0) {
-    maxPoints = min((uint16_t)(rangeSeconds / 5), historyCount);
+    maxPoints = min((uint16_t)(rangeSeconds / sampleSec), bufCount);
   }
 
-  // Calculate downsampling factor to limit response size (max ~120 points for UI)
+  // Calculate downsampling factor to limit response size (max ~180 points for UI)
   uint16_t step = 1;
-  if (maxPoints > 120) {
-    step = (maxPoints + 119) / 120;  // ceil division
+  if (maxPoints > 180) {
+    step = (maxPoints + 179) / 180;  // ceil division
   }
 
   String j = "{\"points\":[";
   bool first = true;
 
   // Output oldest to newest (within range, downsampled)
-  uint16_t startIdx = historyCount - maxPoints;
-  for (uint16_t i = startIdx; i < historyCount; i += step) {
-    uint16_t idx = (historyHead + HISTORY_SIZE - historyCount + i) % HISTORY_SIZE;
+  uint16_t startIdx = bufCount - maxPoints;
+  for (uint16_t i = startIdx; i < bufCount; i += step) {
+    uint16_t idx = (bufHead + bufSize - bufCount + i) % bufSize;
     if (!first) j += ",";
     first = false;
     j += "{";
-    j += "\"ts\":" + String(history[idx].ts) + ",";
-    j += "\"v\":" + String(history[idx].packV, 2) + ",";
-    j += "\"a\":" + String(history[idx].currentA, 2) + ",";
-    j += "\"soc\":" + String(history[idx].soc, 1) + ",";
-    j += "\"min\":" + String(history[idx].minCell, 3) + ",";
-    j += "\"max\":" + String(history[idx].maxCell, 3) + ",";
-    j += "\"t\":" + String(history[idx].tempC, 1);
+    j += "\"ts\":" + String(buf[idx].ts) + ",";
+    j += "\"v\":" + String(buf[idx].packV, 2) + ",";
+    j += "\"a\":" + String(buf[idx].currentA, 2) + ",";
+    j += "\"soc\":" + String(buf[idx].soc, 1) + ",";
+    j += "\"min\":" + String(buf[idx].minCell, 3) + ",";
+    j += "\"max\":" + String(buf[idx].maxCell, 3) + ",";
+    j += "\"t\":" + String(buf[idx].tempC, 1);
     j += "}";
   }
-  j += "],\"count\":" + String(historyCount) + ",\"range\":" + String(rangeSeconds) + ",\"step\":" + String(step) + "}";
+  j += "],\"count\":" + String(bufCount) + ",\"range\":" + String(rangeSeconds) + ",\"step\":" + String(step) + "}";
 
   server.send(200, "application/json", j);
 }
@@ -3099,10 +3144,7 @@ static const char* stateToStr(SysState s) {
 }
 
 static void mqttBuildTopics() {
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-  snprintf(mqttDeviceId, sizeof(mqttDeviceId), "%02X%02X%02X%02X%02X%02X",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  // mqttDeviceId is already set during setup() after WiFi connect
   snprintf(mqttTopicTelemetry, sizeof(mqttTopicTelemetry), "bms/%s/telemetry", mqttDeviceId);
   snprintf(mqttTopicFaults,    sizeof(mqttTopicFaults),    "bms/%s/faults",    mqttDeviceId);
   snprintf(mqttTopicStatus,    sizeof(mqttTopicStatus),    "bms/%s/status",    mqttDeviceId);
@@ -3145,7 +3187,7 @@ static void mqttPublishTelemetry() {
     }
   }
 
-  char buf[1024];
+  static char buf[4096];
   size_t len = serializeJson(doc, buf, sizeof(buf));
   mqttClient.publish(mqttTopicTelemetry, (const uint8_t*)buf, len, false);
 }
@@ -3263,10 +3305,14 @@ static void mqttOnMessage(char* topic, byte* payload, unsigned int length) {
     }
 
     mqttSendAck("ota", true, "OTA starting...");
-    delay(100);  // Let ACK publish
+    mqttClient.disconnect();
+    delay(200);  // Let ACK publish and disconnect cleanly
 
-    // Use insecure or TLS client based on URL
-    WiFiClient& otaClient = url.startsWith("https") ? (WiFiClient&)mqttTlsClient : (WiFiClient&)mqttPlainClient;
+    // Dedicated client for OTA (don't reuse MQTT client)
+    WiFiClient otaPlain;
+    WiFiClientSecure otaTls;
+    otaTls.setInsecure();
+    WiFiClient& otaClient = url.startsWith("https") ? (WiFiClient&)otaTls : (WiFiClient&)otaPlain;
 
     httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     if (checksum.length() == 32) {
@@ -3467,7 +3513,7 @@ static void mqttSetup() {
     }
     mqttClient.setServer(mqttEndpoint.c_str(), mqttPort);
     mqttClient.setCallback(mqttOnMessage);
-    mqttClient.setBufferSize(1280);
+    mqttClient.setBufferSize(4096);
     Serial.printf("🔌 MQTT configurado: %s:%d (ID: %s)\n", mqttEndpoint.c_str(), mqttPort, mqttDeviceId);
   } else {
     Serial.println("ℹ️ MQTT deshabilitado (sin endpoint configurado)");
@@ -3544,6 +3590,13 @@ void setup() {
   }
   Serial.println();
   Serial.printf("✅ WiFi OK. IP: %s\n", WiFi.localIP().toString().c_str());
+
+  // Generate device ID from MAC (needed for web UI and MQTT)
+  { uint8_t mac[6]; WiFi.macAddress(mac);
+    snprintf(mqttDeviceId, sizeof(mqttDeviceId), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    Serial.printf("Device ID: %s\n", mqttDeviceId);
+  }
 
   // NTP time sync
   configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov");
