@@ -4,32 +4,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
-This is a PlatformIO ESP32-S3 project for the Lilygo T-2CAN board. Use these commands from the project root:
+This is a PlatformIO ESP32 project. Use these commands from the project root:
 
 ```bash
 # Build production firmware
-pio run -e t2can
+pio run -e esp32_production
 
 # Build debug firmware (verbose logging, no optimization)
-pio run -e t2can_debug
+pio run -e esp32_debug
 
 # Build OTA-enabled firmware
-pio run -e t2can_ota
+pio run -e esp32_ota
 
-# Upload to connected ESP32-S3 (USB-C)
-pio run -e t2can --target upload
+# Build for T-CAN485 board specifically
+pio run -e tcan485
 
-# Monitor serial output (115200 baud, USB CDC)
+# Upload to connected ESP32
+pio run -e esp32_production --target upload
+
+# Monitor serial output (115200 baud)
 pio device monitor
 
 # Static analysis / linting
 pio check --skip-packages
+
+# Run tests (test framework not yet implemented)
+pio test -e esp32_test
 ```
 
 ## Architecture Overview
 
 ### System Purpose
-ESP32-S3 based Battery Management System controller (Lilygo T-2CAN board) that aggregates multiple JK BMS modules via CAN bus, controls contactors, calculates SoC/SoH, and communicates with inverters using various protocols (BYD HVS, Pylon, SMA/Ingeteam 0x35x). Uses dual CAN architecture: TWAI (250 kbps) for BMS/sensor, MCP2515 (500 kbps) for inverter.
+ESP32-based Battery Management System controller that aggregates multiple JK BMS modules via CAN bus, controls contactors, calculates SoC/SoH, and communicates with inverters using various protocols (BYD HVS, Pylon, SMA/Ingeteam 0x35x). Uses dual CAN architecture: TWAI (250 kbps) for BMS/sensor, MCP2515 (500 kbps) for inverter.
 
 ### Core Components (all in `src/main.cpp`)
 
@@ -57,22 +63,22 @@ ESP32-S3 based Battery Management System controller (Lilygo T-2CAN board) that a
 - API endpoints (`/api/status`, `/api/rev`, `/api/history`, `/api/events`) - JSON data for live updates
 - Event log - 200 persistent entries in LittleFS with CSV export
 
-### Hardware Configuration (Lilygo T-2CAN)
+### Hardware Configuration
 
-Pin definitions in `include/pin_config.h` (defaults in build flags for t2can):
-- CAN1 (TWAI): TX=7, RX=6 (250 kbps, ESP32-S3 built-in)
-- CAN2 (MCP2515 SPI): CS=10, SCK=12, MOSI=11, MISO=13, RST=9 (500 kbps, 16 MHz crystal)
-- Contactors: PRECHARGE=14, CHARGE=15, DISCHARGE=16 (MAIN=0 unused)
+Pin definitions in `include/pin_config.h` (defaults in build flags for tcan485):
+- CAN1 (TWAI): TX=27, RX=26, EN=16, SPEED_MODE=23 (T-CAN485 board, 250 kbps)
+- CAN2 (MCP2515 SPI): CS=5, SCK=18, MOSI=12, MISO=35, INT=34 (500 kbps)
+- Contactors: PRECHARGE=25, CHARGE=32, DISCHARGE=33 (MAIN=0 unused)
 
 ### Dual CAN Architecture
 
-**CAN Bus 1 - TWAI (ESP32-S3 built-in) - 250 kbps:**
+**CAN Bus 1 - TWAI (ESP32 built-in) - 250 kbps:**
 - JK BMS modules (IDs 1-10): Polled every 400ms, respond with cell voltages, pack voltage, temperature
 - AHBC-CANB current sensor (IDs 0x3C2, 0x3C3): Bidirectional current measurement
 
-**CAN Bus 2 - MCP2515 (SPI, 16 MHz crystal) - 500 kbps:**
+**CAN Bus 2 - MCP2515 (SPI) - 500 kbps:**
 - Inverter protocols: SMA/Ingeteam (0x351-0x35E), BYD HVS (0x110/0x150/0x1D0/0x190/0x210), Pylon (0x4200/0x4210-0x4290)
-- All inverter TX uses `canSendMcp()`, RX via `checkReceive()` SPI polling
+- All inverter TX uses `canSendMcp()`, RX via interrupt on GPIO 34
 - MCP2515 status (OK/FAIL), TX/RX/error counters visible in web UI and `/api/status`
 
 ### Protection Logic
@@ -99,9 +105,25 @@ Before opening contactors on fault, the system sends CCL/DCL=0 to the inverter f
 
 Configurable CCL/DCL reduction during specified hours (e.g., 23:00-07:00) for tariff optimization. Parameters: `nightStartHour`, `nightEndHour`, `nightCclPct`, `nightDclPct`. Persisted in NVS.
 
+### Device Name
+
+User-configurable device name (`deviceName`, max 32 chars). Set via `/config` page (MQTT section). Stored in NVS (`devName`). Displayed in the `<h1>` header of the status page (replaces default "JK BMS + Control"). Included in MQTT telemetry as `"name"` field, auto-synced to cloud portal.
+
+### 24-Hour History Buffer
+
+Two ring buffers for chart data:
+- **5s buffer:** 720 points (~1 hour), used for ranges <= 1h
+- **2min buffer:** 720 points (~24 hours), used for ranges > 1h
+- Range selector: 5min / 15min / 30min / 1h / 6h / 12h / 24h
+- Auto-selects buffer and downsamples to max 180 points
+
 ### MQTT Integration
 
 PubSubClient with optional TLS. Topics: `bms/{id}/telemetry` (5s), `bms/{id}/event` (on-event), `bms/{id}/cmd/*` (config/action/ota). Home Assistant auto-discovery. Settings configurable from `/config` page and persisted in NVS. Zero impact when not configured.
+
+### Cloud Connection
+
+Default MQTT settings (T2CAN) point to cloud server `91.98.122.117:1883` with user `bmsdevice`. One-time NVS migration clears old local settings on first boot. Telemetry includes `name` field for auto-sync of device name to cloud portal.
 
 ### OTA Updates
 
@@ -135,8 +157,8 @@ The system auto-learns the real battery capacity (`sohAh`) by measuring a comple
 
 ### Persistence
 
-Uses ESP32-S3 Preferences (NVS) for:
-- Configuration (`jkcfg` namespace): limits, energy config, language, inverter settings, expected cell count (`expCells`), night mode, MQTT settings, tapering
+Uses ESP32 Preferences (NVS) for:
+- Configuration (`jkcfg` namespace): limits, energy config, language, inverter settings, expected cell count (`expCells`), night mode, MQTT settings, tapering, device name (`devName`)
 - Energy state: SoC, coulomb balance, throughput, cycle count, learning phase
 
 Uses LittleFS for:
@@ -152,9 +174,12 @@ On boot (after WiFi), the system calls `configTzTime("CET-1CEST,M3.5.0,M10.5.0/3
 
 | Environment | Purpose | Key Flags |
 |-------------|---------|-----------|
-| `t2can` | Production build (T-2CAN) | `-O2`, `PRODUCTION_BUILD`, `BOARD_T2CAN`, MCP2515 pins, `HA_DISCOVERY` |
-| `t2can_debug` | Debug with logging | `-O0 -g3`, `CORE_DEBUG_LEVEL=5` |
-| `t2can_ota` | OTA-capable release | `OTA_ENABLED` |
+| `esp32_production` | Release build | `-O2`, `PRODUCTION_BUILD` |
+| `esp32_debug` | Debug with logging | `-O0 -g3`, `CORE_DEBUG_LEVEL=5` |
+| `esp32_ota` | OTA-capable release | `OTA_ENABLED` |
+| `esp32_test` | Unit testing | `UNIT_TEST`, ArduinoUnit |
+| `tcan485` | T-CAN485 board specific | Board-specific pins, MCP2515, `autowp-mcp2515` lib |
+| `native` | Host simulation | GoogleTest, C++17 |
 
 ## Important Constants
 
@@ -167,20 +192,6 @@ Compile-time constants (can be overridden in `platformio.ini`):
 Credentials are hardcoded in `main.cpp`:
 - WiFi: Lines 22-23
 - Auth: Lines 26-29 (admin/user accounts)
-
-## Key Differences from T-CAN485 Version
-
-| Aspect | T-CAN485 | T-2CAN |
-|--------|----------|--------|
-| MCU | ESP32 | ESP32-S3 (16MB flash, 8MB PSRAM) |
-| TWAI pins | TX=27, RX=26 | TX=7, RX=6 |
-| Transceiver ctrl | ME2107_EN=16, SPEED=23 | Not needed |
-| MCP2515 SPI | HSPI (CS=5, SCK=18, MOSI=12, MISO=35) | Default SPI (CS=10, SCK=12, MOSI=11, MISO=13) |
-| MCP2515 crystal | 8 MHz | 16 MHz |
-| MCP2515 RX | INT pin (GPIO34) | `checkReceive()` polling |
-| MCP2515 RST | Not wired | GPIO 9 |
-| Contactors | PRE=25, CHG=32, DSG=33 | PRE=14, CHG=15, DSG=16 |
-| Serial | UART | USB CDC |
 
 ## Third-Party Credits
 

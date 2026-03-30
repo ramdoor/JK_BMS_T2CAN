@@ -47,6 +47,7 @@ static WiFiClientSecure mqttTlsClient;
 static WiFiClient mqttPlainClient;
 static PubSubClient mqttClient;
 static char mqttDeviceId[13]; // MAC hex (12 chars + null)
+static String deviceName = "";  // User-configurable device name (synced to cloud)
 static char mqttTopicTelemetry[48];
 static char mqttTopicFaults[48];
 static char mqttTopicStatus[48];
@@ -741,12 +742,22 @@ static void loadConfig() {
   nightCclPct = prefs.getUChar("nightCcl", 50);
   nightDclPct = prefs.getUChar("nightDcl", 100);
 
-  // MQTT settings from NVS
-  mqttEndpoint = prefs.getString("mqttEp", "");
-  mqttPort = prefs.getUShort("mqttPt", MQTT_PORT);
-  mqttInsecure = prefs.getBool("mqttIns", false);
-  mqttUser = prefs.getString("mqttUsr", "");
-  mqttPass = prefs.getString("mqttPwd", "");
+  // MQTT settings from NVS (cloud defaults if not configured)
+  // One-time migration: clear old local MQTT config so cloud defaults apply
+  if (!prefs.getBool("mqttCloud", false)) {
+    prefs.remove("mqttEp");
+    prefs.remove("mqttPt");
+    prefs.remove("mqttIns");
+    prefs.remove("mqttUsr");
+    prefs.remove("mqttPwd");
+    prefs.putBool("mqttCloud", true);
+  }
+  mqttEndpoint = prefs.getString("mqttEp", "91.98.122.117");
+  mqttPort = prefs.getUShort("mqttPt", 1883);
+  mqttInsecure = prefs.getBool("mqttIns", true);
+  mqttUser = prefs.getString("mqttUsr", "bmsdevice");
+  mqttPass = prefs.getString("mqttPwd", "Bms2026Device");
+  deviceName = prefs.getString("devName", "");
 
   prefs.end();
 
@@ -817,6 +828,7 @@ static void saveConfig() {
   prefs.putBool("mqttIns", mqttInsecure);
   prefs.putString("mqttUsr", mqttUser);
   prefs.putString("mqttPwd", mqttPass);
+  prefs.putString("devName", deviceName);
   prefs.end();
 }
 
@@ -1588,7 +1600,7 @@ static void handleRoot() {
 
   float sohPct = (ecfg.capacityAh > 0.1f) ? (ecfg.sohAh / ecfg.capacityAh) * 100.0f : 100.0f;
 
-  String html = htmlHeader(String("🔋 ") + T(S_TITLE));
+  String html = htmlHeader(String("🔋 ") + (deviceName.length() > 0 ? deviceName : String(T(S_TITLE))));
 
   // Alert box (dynamically updated by JS)
   {
@@ -2173,6 +2185,7 @@ static void handleConfig() {
   }
   html += "</div>";
   html += "<div class='form-grid'>";
+  html += "<div><label>Device Name</label><input name='devName' value='" + deviceName + "' placeholder='My BMS' maxlength='32'></div>";
   html += "<div><label>" + String(T(S_MQTT_ENDPOINT)) + "</label><input name='mqttEp' value='" + mqttEndpoint + "' placeholder='broker.example.com'></div>";
   html += "<div><label>" + String(T(S_MQTT_PORT)) + "</label><input name='mqttPt' type='number' min='1' max='65535' value='" + String(mqttPort) + "'></div>";
   html += "<div><label>" + String(T(S_MQTT_INSECURE)) + "</label><input name='mqttIns' type='checkbox'" + String(mqttInsecure ? " checked" : "") + "></div>";
@@ -2368,6 +2381,9 @@ static void handleSave() {
   if (server.hasArg("mqttPwd")) {
     String pw = server.arg("mqttPwd");
     if (pw != "****" && pw != mqttPass) { mqttPass = pw; mqttChanged = true; }
+  }
+  if (server.hasArg("devName")) {
+    deviceName = server.arg("devName").substring(0, 32);
   }
 
   saveConfig();
@@ -3177,6 +3193,7 @@ static void mqttPublishTelemetry() {
   doc["taperChg"] = serialized(String(taperChgFactor, 2));
   doc["taperDis"] = serialized(String(taperDisFactor, 2));
   doc["faults"]   = faultText;
+  if (deviceName.length() > 0) doc["name"] = deviceName;
 
   JsonArray cells = doc["cells"].to<JsonArray>();
   for (uint8_t id = 1; id <= MAX_MODULES; id++) {

@@ -98,12 +98,22 @@ Organized task list for ongoing development.
 - [x] **Web UI Integration** ✅
   - [x] MQTT settings page (endpoint, port, TLS, user/pass)
   - [x] Connection status indicator
+  - [x] Device Name field (synced to cloud)
   - [ ] Test/reconnect buttons
 
+### Cloud Portal ✅
+- [x] Backend API (Node.js + Express + TypeScript)
+- [x] Frontend Dashboard (React + Vite, matches local BMS UI)
+- [x] Role hierarchy: superadmin → installer → monitor
+- [x] Device lifecycle: auto-provision → claim → assign
+- [x] Real-time telemetry via WebSocket
+- [x] InfluxDB time-series storage with configurable resolution
+- [x] MQTT bridge (auto-provision, fault alerts, name sync)
+- [x] Nginx SPA routing with `/api/` prefix
+
 ### InfluxDB Integration
-- [ ] HTTP client for line protocol
-- [ ] Configurable database settings
-- [ ] Batching logic (reduce write frequency)
+- [x] Cloud portal uses InfluxDB 2.7 for telemetry storage
+- [ ] Direct ESP32 HTTP client for line protocol (optional)
 - [ ] Create sample Grafana dashboards
 
 ### Alerting
@@ -122,11 +132,13 @@ Organized task list for ongoing development.
 - [ ] Auto-upload on critical fault
 
 ### Data Visualization
-- [x] Web UI charts (Chart.js) — Real-time rolling 60s
+- [x] Web UI charts (Chart.js) — Real-time rolling with range selector
   - [x] Pack voltage over time
   - [x] Current profile
   - [x] SoC over time
-- [x] Server-side history buffer (720 points, ~1 hour at 5s intervals) with `/api/history` and range selector
+- [x] Dual history buffers: 5s (1h) + 2min (24h), 720 points each
+- [x] Range selector: 5min / 15min / 30min / 1h / 6h / 12h / 24h
+- [x] Cloud portal charts (Recharts) with same range options
 - [ ] On-device persistent data storage (LittleFS)
 - [ ] CSV export API (historical data)
 - [ ] Temperature trends chart
@@ -376,7 +388,7 @@ Organized task list for ongoing development.
 
 ## 💡 Ideas / Wishlist
 
-- [ ] Mobile app (React Native or Flutter)
+- [x] Mobile app (React Native + Expo SDK 55) — Fase 1 completa, repo `jkbms-app`
 - [ ] Voice alerts (TTS over speaker)
 - [ ] Integration with home automation (Alexa, Google Home)
 - [ ] Blockchain-based battery passport (lifetime tracking)
@@ -385,5 +397,5 @@ Organized task list for ongoing development.
 
 ---
 
-**Last Updated:** March 24, 2026
+**Last Updated:** March 30, 2026
 **Next Review:** Weekly during active development
